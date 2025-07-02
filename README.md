@@ -8,7 +8,7 @@ This ROS package implements an Extended Kalman Filter (EKF) for estimating the o
 
 The Butterworth filter can be enabled or disabled via a ROS parameter, offering flexibility for different use cases.
 
-## Requirement
+## Requirements
 
 Ubuntu 20.04.
 
