@@ -41,7 +41,7 @@ This project is licensed under the MIT License. See the LICENSE file for details
 
 ## Contact
 
-For questions or support, contact Hoang Quoc Hung via GitHub or open an issue in the repository.
+For questions or support, contact Hoang Quoc Hung (hoanghung21301580@gmail.com) via GitHub or open an issue in the repository.
 
 ## Acknowledgments
 
