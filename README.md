@@ -8,6 +8,17 @@ This ROS package implements an Extended Kalman Filter (EKF) for estimating the o
 
 The Butterworth filter can be enabled or disabled via a ROS parameter, offering flexibility for different use cases.
 
+## Install
+
+Use the following commands
+
+```
+mkdir ~/imu_filter_ws/src
+cd ~/imu_filter_ws/src
+git clone https://github.com/HoangHungIRL/IMU_filter_ROS_IRL.git
+cd ..
+catkin_make
+```
 
 ## License
 
