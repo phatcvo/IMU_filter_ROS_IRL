@@ -1,7 +1,14 @@
 /imu_ekf_node:
+  
   imu_topic: "/imu/data_newIMU"
-  mag_topic: "/mag_newIMU"
+
+  noise_filter: true
+  fc: 25.0  # cut-off frequency of noise
+  fs: 100.0  # sample frequency of IMU
+
   use_magnetometer: true
+  mag_topic: "/mag_newIMU"
+
   mag_bias_x: 0.0  # Hard iron bias x (µT)
   mag_bias_y: 0.0  # Hard iron bias y (µT)
   mag_bias_z: 0.0  # Hard iron bias z (µT)

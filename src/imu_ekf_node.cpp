@@ -2,7 +2,8 @@
 #include <cmath>
 #include <ros/ros.h>
 
-EKF_IMU::EKF_IMU() : nh_("/imu_ekf_node"), sync_(imu_sub_, mag_sub_, 10), update_count_(0), initialized_(false), use_magnetometer_(false), has_recent_mag_(false)
+EKF_IMU::EKF_IMU() : nh_("/imu_ekf_node"), sync_(imu_sub_, mag_sub_, 10), update_count_(0), initialized_(false), use_magnetometer_(false), has_recent_mag_(false),
+                     butter_ax_(nh_), butter_ay_(nh_), butter_az_(nh_), butter_wx_(nh_), butter_wy_(nh_), butter_wz_(nh_)
 {
     // Initialize state covariance
     P_ = Eigen::Matrix4d::Identity();
@@ -77,6 +78,13 @@ EKF_IMU::EKF_IMU() : nh_("/imu_ekf_node"), sync_(imu_sub_, mag_sub_, 10), update
         ROS_WARN("Failed to load use_magnetometer, using default: %s", use_magnetometer_ ? "true" : "false");
     }
 
+    // Check if Butterworth filter should be used
+    if (!nh_.getParam("noise_filter", noise_filter_)) {
+        noise_filter_ = false;
+        ROS_WARN("Failed to load noise_filter, using default: %s", noise_filter_ ? "true" : "false");
+    }
+    ROS_INFO("Loaded noise_filter: %s", noise_filter_ ? "true" : "false");
+
     // Setup ROS subscribers and publishers
     std::string imu_topic = "/imu/data_newIMU";
     std::string mag_topic = "/mag_newIMU";
@@ -95,8 +103,8 @@ EKF_IMU::EKF_IMU() : nh_("/imu_ekf_node"), sync_(imu_sub_, mag_sub_, 10), update
     ROS_INFO("Subscribed to IMU topic: %s, Magnetometer topic: %s", imu_topic.c_str(), mag_topic.c_str());
 
     ROS_INFO("Initializing IMU EKF node with magnetometer support and hard iron bias compensation...");
-    ROS_INFO("use_magnetometer: %s, mag_bias: [%.2f, %.2f, %.2f] uT",
-             use_magnetometer_ ? "true" : "false", mag_bias_(0), mag_bias_(1), mag_bias_(2));
+    ROS_INFO("use_magnetometer: %s, mag_bias: [%.2f, %.2f, %.2f] uT, noise_filter: %s",
+             use_magnetometer_ ? "true" : "false", mag_bias_(0), mag_bias_(1), mag_bias_(2), noise_filter_ ? "true" : "false");
 }
 
 Eigen::Matrix3d EKF_IMU::skew(const Eigen::Vector3d& x)
@@ -284,6 +292,22 @@ void EKF_IMU::syncedCallback(const sensor_msgs::Imu::ConstPtr& imu_msg, const se
         return;
     }
 
+    // Apply Butterworth filter if enabled
+    sensor_msgs::Imu filtered_imu = *imu_msg;
+    if (noise_filter_) {
+        filtered_imu.linear_acceleration.x = butter_ax_.apply(imu_msg->linear_acceleration.x);
+        filtered_imu.linear_acceleration.y = butter_ay_.apply(imu_msg->linear_acceleration.y);
+        filtered_imu.linear_acceleration.z = butter_az_.apply(imu_msg->linear_acceleration.z);
+        filtered_imu.angular_velocity.x = butter_wx_.apply(imu_msg->angular_velocity.x);
+        filtered_imu.angular_velocity.y = butter_wy_.apply(imu_msg->angular_velocity.y);
+        filtered_imu.angular_velocity.z = butter_wz_.apply(imu_msg->angular_velocity.z);
+        if (update_count_ % 10 == 0) {
+            ROS_INFO("Applied Butterworth filter: Accel=[%.2f, %.2f, %.2f], Gyro=[%.2f, %.2f, %.2f]",
+                     filtered_imu.linear_acceleration.x, filtered_imu.linear_acceleration.y, filtered_imu.linear_acceleration.z,
+                     filtered_imu.angular_velocity.x, filtered_imu.angular_velocity.y, filtered_imu.angular_velocity.z);
+        }
+    }
+
     bool valid_mag = mag_msg && mag_msg->header.stamp.isValid();
     if (use_magnetometer_ && valid_mag) {
         double time_diff = std::abs((imu_msg->header.stamp - mag_msg->header.stamp).toSec());
@@ -303,14 +327,14 @@ void EKF_IMU::syncedCallback(const sensor_msgs::Imu::ConstPtr& imu_msg, const se
     // Initialize on first valid message
     if (!initialized_ || !last_time_.isValid()) {
         last_time_ = imu_msg->header.stamp;
-        last_imu_msg_ = *imu_msg;
+        last_imu_msg_ = filtered_imu;
         if (valid_mag) {
             last_mag_msg_ = *mag_msg;
             last_mag_time_ = mag_msg->header.stamp;
         }
-        double ax = imu_msg->linear_acceleration.x;
-        double ay = imu_msg->linear_acceleration.y;
-        double az = imu_msg->linear_acceleration.z;
+        double ax = filtered_imu.linear_acceleration.x;
+        double ay = filtered_imu.linear_acceleration.y;
+        double az = filtered_imu.linear_acceleration.z;
         double a_norm = std::sqrt(ax * ax + ay * ay + az * az);
         ROS_INFO("Initial accelerometer: [%.2f, %.2f, %.2f], Norm: %.2f", ax, ay, az, a_norm);
         if (a_norm > 1e-6 && std::abs(a_norm - 9.81) < 0.3 * 9.81) {
@@ -347,13 +371,13 @@ void EKF_IMU::syncedCallback(const sensor_msgs::Imu::ConstPtr& imu_msg, const se
         } else {
             ROS_WARN("Initialization failed: invalid accelerometer data");
             // Publish raw data for debugging
-            sensor_msgs::Imu orientation_msg = *imu_msg;
+            sensor_msgs::Imu orientation_msg = filtered_imu;
             orientation_msg.header.frame_id = "imu_ekf";
             imu_pub_.publish(orientation_msg);
-            sensor_msgs::Imu accel_comp_msg = *imu_msg;
+            sensor_msgs::Imu accel_comp_msg = filtered_imu;
             accel_comp_msg.header.frame_id = "imu_accel_compensated";
             accel_comp_pub_.publish(accel_comp_msg);
-            sensor_msgs::Imu gravity_msg = *imu_msg;
+            sensor_msgs::Imu gravity_msg = filtered_imu;
             gravity_msg.header.frame_id = "imu_gravity_ekf";
             gravity_msg.linear_acceleration.x = ax;
             gravity_msg.linear_acceleration.y = ay;
@@ -369,7 +393,7 @@ void EKF_IMU::syncedCallback(const sensor_msgs::Imu::ConstPtr& imu_msg, const se
     if (dt <= 0.0 || dt > 0.2) {
         ROS_WARN("Invalid dt: %.2fs, resetting timestamp", dt);
         last_time_ = imu_msg->header.stamp;
-        last_imu_msg_ = *imu_msg;
+        last_imu_msg_ = filtered_imu;
         if (valid_mag) {
             last_mag_msg_ = *mag_msg;
             last_mag_time_ = mag_msg->header.stamp;
@@ -380,16 +404,16 @@ void EKF_IMU::syncedCallback(const sensor_msgs::Imu::ConstPtr& imu_msg, const se
         ROS_INFO("dt: %.2fs", dt);
     }
     last_time_ = imu_msg->header.stamp;
-    last_imu_msg_ = *imu_msg;
+    last_imu_msg_ = filtered_imu;
     if (valid_mag) {
         last_mag_msg_ = *mag_msg;
         last_mag_time_ = mag_msg->header.stamp;
     }
 
-    q_ = update(*imu_msg, use_magnetometer_ && valid_mag && has_recent_mag_ ? &(*mag_msg) : nullptr, dt);
+    q_ = update(filtered_imu, use_magnetometer_ && valid_mag && has_recent_mag_ ? &(*mag_msg) : nullptr, dt);
 
     // Compute gravity-compensated acceleration and gravity estimate
-    Eigen::Vector3d a_measured(imu_msg->linear_acceleration.x, imu_msg->linear_acceleration.y, imu_msg->linear_acceleration.z);
+    Eigen::Vector3d a_measured(filtered_imu.linear_acceleration.x, filtered_imu.linear_acceleration.y, filtered_imu.linear_acceleration.z);
     Eigen::Matrix3d R = q2R(q_);
     Eigen::Matrix3d R_body_to_world = R.transpose();
     Eigen::Vector3d a_compensated = a_measured - R * a_ref_;
@@ -400,7 +424,7 @@ void EKF_IMU::syncedCallback(const sensor_msgs::Imu::ConstPtr& imu_msg, const se
     }
 
     // Publish orientation IMU message
-    sensor_msgs::Imu orientation_msg = *imu_msg;
+    sensor_msgs::Imu orientation_msg = filtered_imu;
     orientation_msg.header.frame_id = "imu_ekf";
     orientation_msg.orientation.w = q_(0);
     orientation_msg.orientation.x = q_(1);
@@ -409,15 +433,15 @@ void EKF_IMU::syncedCallback(const sensor_msgs::Imu::ConstPtr& imu_msg, const se
     for (int i = 0; i < 3; ++i)
         for (int j = 0; j < 3; ++j)
             orientation_msg.orientation_covariance[i * 3 + j] = P_(i, j);
-    orientation_msg.angular_velocity = imu_msg->angular_velocity;
-    orientation_msg.linear_acceleration = imu_msg->linear_acceleration;
+    orientation_msg.angular_velocity = filtered_imu.angular_velocity;
+    orientation_msg.linear_acceleration = filtered_imu.linear_acceleration;
     imu_pub_.publish(orientation_msg);
     if (update_count_ % 10 == 0) {
         ROS_INFO("Published orientation message");
     }
 
     // Publish gravity-compensated acceleration IMU message
-    sensor_msgs::Imu accel_comp_msg = *imu_msg;
+    sensor_msgs::Imu accel_comp_msg = filtered_imu;
     accel_comp_msg.header.frame_id = "imu_accel_compensated";
     accel_comp_msg.orientation.w = q_(0);
     accel_comp_msg.orientation.x = q_(1);
@@ -429,15 +453,15 @@ void EKF_IMU::syncedCallback(const sensor_msgs::Imu::ConstPtr& imu_msg, const se
     for (int i = 0; i < 3; ++i)
         for (int j = 0; j < 3; ++j)
             accel_comp_msg.orientation_covariance[i * 3 + j] = P_(i, j);
-    accel_comp_msg.angular_velocity = imu_msg->angular_velocity;
-    accel_comp_msg.linear_acceleration_covariance = imu_msg->linear_acceleration_covariance;
+    accel_comp_msg.angular_velocity = filtered_imu.angular_velocity;
+    accel_comp_msg.linear_acceleration_covariance = filtered_imu.linear_acceleration_covariance;
     accel_comp_pub_.publish(accel_comp_msg);
     if (update_count_ % 10 == 0) {
         ROS_INFO("Published gravity-compensated acceleration message");
     }
 
     // Publish gravity estimate IMU message
-    sensor_msgs::Imu gravity_msg = *imu_msg;
+    sensor_msgs::Imu gravity_msg = filtered_imu;
     gravity_msg.header.frame_id = "imu_gravity_ekf";
     gravity_msg.orientation.w = q_(0);
     gravity_msg.orientation.x = q_(1);
@@ -449,8 +473,8 @@ void EKF_IMU::syncedCallback(const sensor_msgs::Imu::ConstPtr& imu_msg, const se
     for (int i = 0; i < 3; ++i)
         for (int j = 0; j < 3; ++j)
             gravity_msg.orientation_covariance[i * 3 + j] = P_(i, j);
-    gravity_msg.angular_velocity = imu_msg->angular_velocity;
-    gravity_msg.linear_acceleration_covariance = imu_msg->linear_acceleration_covariance;
+    gravity_msg.angular_velocity = filtered_imu.angular_velocity;
+    gravity_msg.linear_acceleration_covariance = filtered_imu.linear_acceleration_covariance;
     gravity_pub_.publish(gravity_msg);
     if (update_count_ % 10 == 0) {
         ROS_INFO("Published gravity estimate message");

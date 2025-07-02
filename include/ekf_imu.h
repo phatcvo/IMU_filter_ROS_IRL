@@ -7,6 +7,7 @@
 #include <message_filters/subscriber.h>
 #include <message_filters/time_synchronizer.h>
 #include <Eigen/Dense>
+#include "butterworth.h"
 
 class EKF_IMU {
 public:
@@ -35,7 +36,7 @@ private:
     Eigen::Matrix3d g_noise_;
     Eigen::Vector3d a_ref_;
     Eigen::Vector3d m_ref_;
-    double mag_norm_ref_; // Expected magnetic field norm (uT)
+    double mag_norm_ref_;
     Eigen::Vector3d mag_bias_;
     Eigen::Vector4d q_;
     Eigen::VectorXd z_;
@@ -47,6 +48,13 @@ private:
     bool initialized_;
     bool use_magnetometer_;
     bool has_recent_mag_;
+    bool noise_filter_;
+    Butter2 butter_ax_;
+    Butter2 butter_ay_;
+    Butter2 butter_az_;
+    Butter2 butter_wx_;
+    Butter2 butter_wy_;
+    Butter2 butter_wz_;
 };
 
 #endif // EKF_IMU_H

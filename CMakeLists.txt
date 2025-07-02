@@ -26,12 +26,14 @@ include_directories(
   ${EIGEN3_INCLUDE_DIRS}
 )
 
-add_executable(imu_ekf_node
+add_executable(imu_ekf_node 
+  src/butterworth.cpp
   src/imu_ekf_node.cpp
 )
 target_link_libraries(imu_ekf_node
   ${catkin_LIBRARIES}
   ${EIGEN3_LIBRARIES}
 )
+
 add_dependencies(imu_ekf_node ${catkin_EXPORTED_TARGETS})
 
