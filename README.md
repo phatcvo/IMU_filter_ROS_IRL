@@ -10,7 +10,7 @@ The Butterworth filter can be enabled or disabled via a ROS parameter, offering 
 
 ## Requirement
 
-Ubuntu 22.04.
+Ubuntu 20.04.
 ROS Noetic.
 
 ## Install
