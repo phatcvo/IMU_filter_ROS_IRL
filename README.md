@@ -10,7 +10,7 @@ The Butterworth filter can be enabled or disabled via a ROS parameter, offering 
 
 ## Install
 
-Use the following commands
+Use the following commands:
 
 ```
 mkdir ~/imu_filter_ws/src
@@ -21,7 +21,7 @@ catkin_make
 ```
 ## Launch
 
-Use the following commands
+Use the following commands:
 
 ```
 cd ~/imu_filter_ws
