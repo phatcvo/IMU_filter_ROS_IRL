@@ -19,6 +19,15 @@ git clone https://github.com/HoangHungIRL/IMU_filter_ROS_IRL.git
 cd ..
 catkin_make
 ```
+## Launch
+
+Use the following commands
+
+```
+cd ~/imu_filter_ws
+source devel/setup.bash
+roslaunch imu_filter_ros_irl imu_ekf_node.launch
+```
 
 ## License
 
